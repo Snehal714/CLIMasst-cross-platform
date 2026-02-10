@@ -15,13 +15,15 @@ pipeline {
         CONFIG_FILE = "masst_config.bm"
         MASST_ZIP = "MASSTCLI"
         DOWNLOAD_URL = "https://storage.googleapis.com/masst-assets/Defender-Binary-Integrator/1.0.0/Linux/MASSTCLI-v1.1.0-linux-amd64.zip"
-//         DOWNLOAD_URL = "https://storage.googleapis.com/masst-assets/Defender-Binary-Integrator/1.0.0/MacOS/MASSTCLI-v1.1.0-darwin-arm64.zip"
         INPUT_FILE = "demoApp.aab"
         KEYSTORE_FILE = "shruti-key.jks"
         KEYSTORE_PASSWORD = "Bugsmirror@123"
         KEY_ALIAS = "key0"
         KEY_PASSWORD = "Bugsmirror@123"
-//         IDENTITY = "Apple Distribution"
+
+        // Android SDK paths
+        ANDROID_HOME = "/home/snehal_mane/Android/Sdk"
+        ANDROID_SDK_ROOT = "/home/snehal_mane/Android/Sdk"
     }
 
     options {
@@ -35,8 +37,11 @@ pipeline {
                 checkout scm
                 script {
                     if (isUnix()) {
-                        sh '''
+                        sh '''#!/bin/bash
                             set -e
+
+                            # Source environment
+                            export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools
 
                             # Download MASSTCLI if not present
                             if [ ! -f "${WORKSPACE}/${MASST_ZIP}.zip" ]; then
@@ -63,10 +68,10 @@ pipeline {
                 timeout(time: 5, unit: 'MINUTES') {
                     script {
                         if (isUnix()) {
-                            sh '''
+                            sh '''#!/bin/bash
                                 set -e
 
-                                [ -d "${MASST_DIR}" ] && exit 0
+                                [ -d "${WORKSPACE}/${MASST_DIR}" ] && exit 0
 
                                 TEMP=$(mktemp -d)
                                 unzip -q "${WORKSPACE}/${MASST_ZIP}.zip" -d "${TEMP}"
@@ -103,8 +108,11 @@ pipeline {
                     def isDebug = params.IS_DEBUG
 
                     if (isUnix()) {
-                        sh """
+                        sh """#!/bin/bash
                             set -e
+
+                            # Set Android environment
+                            export PATH=\$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools
 
                             # Validate input files exist
                             [ -f "${WORKSPACE}/${INPUT_FILE}" ] || { echo "ERROR: ${INPUT_FILE} not found"; exit 1; }
@@ -259,14 +267,13 @@ pipeline {
             }
         }
 
-
         stage('Archive & Report') {
             steps {
                 script {
                     def buildMode = params.IS_DEBUG ? 'DEBUG' : 'RELEASE'
 
                     if (isUnix()) {
-                        sh """
+                        sh """#!/bin/bash
                             REPORT="${WORKSPACE}/${ARTIFACTS_DIR}/build_report.txt"
 
                             {
@@ -329,7 +336,7 @@ pipeline {
             steps {
                 script {
                     if (isUnix()) {
-                        sh '''
+                        sh '''#!/bin/bash
                             set -e
                             echo "Cleaning up MASSTCLI..."
 
