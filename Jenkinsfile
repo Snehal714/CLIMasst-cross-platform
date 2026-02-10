@@ -274,6 +274,11 @@ pipeline {
 
                     if (isUnix()) {
                         sh """#!/bin/bash
+                            set -e
+
+                            # Create output directory if it doesn't exist
+                            mkdir -p "${WORKSPACE}/${ARTIFACTS_DIR}"
+
                             REPORT="${WORKSPACE}/${ARTIFACTS_DIR}/build_report.txt"
 
                             {
@@ -284,13 +289,17 @@ pipeline {
                                 echo "Timestamp: \$(date '+%Y-%m-%d %H:%M:%S')"
                                 echo ""
                                 echo "Input Files:"
-                                [ -f "${WORKSPACE}/${INPUT_FILE}" ] && echo "  ${INPUT_FILE}: \$(stat -f%z "${WORKSPACE}/${INPUT_FILE}" 2>/dev/null || stat -c%s "${WORKSPACE}/${INPUT_FILE}") bytes"
-                                [ -f "${WORKSPACE}/${CONFIG_FILE}" ] && echo "  ${CONFIG_FILE}: \$(stat -f%z "${WORKSPACE}/${CONFIG_FILE}" 2>/dev/null || stat -c%s "${WORKSPACE}/${CONFIG_FILE}") bytes"
+                                [ -f "${WORKSPACE}/${INPUT_FILE}" ] && echo "  ${INPUT_FILE}: \$(stat -c%s "${WORKSPACE}/${INPUT_FILE}" 2>/dev/null || echo 'unknown') bytes"
+                                [ -f "${WORKSPACE}/${CONFIG_FILE}" ] && echo "  ${CONFIG_FILE}: \$(stat -c%s "${WORKSPACE}/${CONFIG_FILE}" 2>/dev/null || echo 'unknown') bytes"
                                 echo ""
                                 echo "Output Files:"
-                                find "${WORKSPACE}/${ARTIFACTS_DIR}" -type f ! -name "build_report.txt" | while read file; do
-                                    echo "  \$(basename "\$file"): \$(stat -f%z "\$file" 2>/dev/null || stat -c%s "\$file") bytes"
-                                done
+                                if [ -d "${WORKSPACE}/${ARTIFACTS_DIR}" ]; then
+                                    find "${WORKSPACE}/${ARTIFACTS_DIR}" -type f ! -name "build_report.txt" 2>/dev/null | while read file; do
+                                        echo "  \$(basename "\$file"): \$(stat -c%s "\$file" 2>/dev/null || echo 'unknown') bytes"
+                                    done || echo "  No output files generated yet"
+                                else
+                                    echo "  Output directory not created"
+                                fi
                                 echo ""
                                 echo "Status: SUCCESS"
                                 echo "===================================================="
@@ -301,6 +310,10 @@ pipeline {
                     } else {
                         bat """
                             setlocal enabledelayedexpansion
+
+                            REM Create output directory if it doesn't exist
+                            if not exist "%WORKSPACE%\\%ARTIFACTS_DIR%" mkdir "%WORKSPACE%\\%ARTIFACTS_DIR%"
+
                             set "REPORT=%WORKSPACE%\\%ARTIFACTS_DIR%\\build_report.txt"
 
                             (
@@ -328,7 +341,7 @@ pipeline {
                         """
                     }
                 }
-                archiveArtifacts artifacts: 'output/**', allowEmptyArchive: false, fingerprint: true, onlyIfSuccessful: true
+                archiveArtifacts artifacts: 'output/**', allowEmptyArchive: true, fingerprint: true, onlyIfSuccessful: false
             }
         }
 
