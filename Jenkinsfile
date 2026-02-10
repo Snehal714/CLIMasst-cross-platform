@@ -266,6 +266,29 @@ pipeline {
                 }
             }
         }
+        stage('Debug - Check Output') {
+            steps {
+                script {
+                    if (isUnix()) {
+                        sh '''#!/bin/bash
+                            echo "=== Checking workspace contents ==="
+                            ls -la "${WORKSPACE}"
+                            echo ""
+                            echo "=== Checking for output directory ==="
+                            if [ -d "${WORKSPACE}/output" ]; then
+                                echo "Output directory exists:"
+                                ls -la "${WORKSPACE}/output"
+                            else
+                                echo "⚠️  Output directory NOT found"
+                            fi
+                            echo ""
+                            echo "=== Looking for any APK/AAB files ==="
+                            find "${WORKSPACE}" -name "*.apk" -o -name "*.aab" | head -10
+                        '''
+                    }
+                }
+            }
+        }
 
         stage('Archive & Report') {
             steps {
