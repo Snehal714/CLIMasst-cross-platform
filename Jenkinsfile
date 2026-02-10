@@ -12,10 +12,10 @@ pipeline {
     environment {
         MASST_DIR = "MASSTCLI_EXTRACTED"
         ARTIFACTS_DIR = "output"
-        CONFIG_FILE = "masst_config.bm"
+        CONFIG_FILE = "smart_test_app.bm"
         MASST_ZIP = "MASSTCLI"
         DOWNLOAD_URL = "https://storage.googleapis.com/masst-assets/Defender-Binary-Integrator/1.0.0/Linux/MASSTCLI-v1.1.0-linux-amd64.zip"
-        INPUT_FILE = "demoApp.aab"
+        INPUT_FILE = "smart_test_app.aab"
         KEYSTORE_FILE = "shruti-key.jks"
         KEYSTORE_PASSWORD = "Bugsmirror@123"
         KEY_ALIAS = "key0"
