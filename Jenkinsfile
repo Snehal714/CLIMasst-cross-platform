@@ -1,83 +1,129 @@
 pipeline {
     agent any
-    parameters {
-        booleanParam(name: 'IS_DEBUG', defaultValue: false, description: 'Debug or Release build')
-        choice(name: 'SHIELD_LEVEL', choices: ['1', '2', '3'], description: 'Protection level (1=Basic, 2=Standard, 3=Advanced)')
-    }
-    environment {
-        INPUT_FILE = "app-release.aab"
-        CONFIG_FILE = "bluebeetle_config.bm"
-        MACOS_URL = "https://storage.googleapis.com/masst-assets/Defender-Binary-Integrator/1.0.0/MacOS/MASSTCLI-v1.1.0-darwin-arm64.zip"
-        LINUX_URL = "https://storage.googleapis.com/masst-assets/Defender-Binary-Integrator/1.0.0/Linux/MASSTCLI-v1.1.0-linux-amd64.zip"
+ parameters {
+            booleanParam(name: 'IS_DEBUG', defaultValue: false, description: 'Debug or Release build')
+            choice(name: 'SHIELD_LEVEL', choices: ['1', '2'], description: 'Select Shield Protection Level')
+        }
+        environment {
+        // USER CONFIGURATION
+        INPUT_FILE = "app-release.aab"; CONFIG_FILE = "bluebeetle_config.bm"
+        MACOS_DOWNLOAD_URL = "https://storage.googleapis.com/masst-assets/Defender-Binary-Integrator/1.0.0/MacOS/MASSTCLI-v1.1.0-darwin-arm64.zip"
+        LINUX_DOWNLOAD_URL = "https://storage.googleapis.com/masst-assets/Defender-Binary-Integrator/1.0.0/Linux/MASSTCLI-v1.1.0-linux-amd64.zip"
         ANDROID_HOME = "/home/snehal_mane/Android/Sdk"
-        KEYSTORE_FILE = "Bluebeetle.jks"
-        KEYSTORE_PASSWORD = "bugs@1234"
-        KEY_ALIAS = "key0"
-        KEY_PASSWORD = "bugs@1234"
+        KEYSTORE_FILE = "Bluebeetle.jks"; KEYSTORE_PASSWORD = "bugs@1234"; KEY_ALIAS = "key0"; KEY_PASSWORD = "bugs@1234"
         IDENTITY = "Apple Distribution: Bugsmirror Research private limited (BPKUYCFJ74)"
-        MASST_DIR = "MASSTCLI_EXTRACTED"
-        ARTIFACTS_DIR = "output"
-        MASST_ZIP = "MASSTCLI"
+        MASST_DIR = "MASSTCLI_EXTRACTED"; ARTIFACTS_DIR = "output"; MASST_ZIP = "MASSTCLI"
     }
-    options {
-        timestamps()
-        buildDiscarder(logRotator(numToKeepStr: '10'))
-    }
+    options { timestamps(); buildDiscarder(logRotator(numToKeepStr: '10')) }
     stages {
         stage('Setup') {
             steps {
-                checkout scm
+                checkout scm //remove this line if not using git or jenkinsfile is not in repo
                 script {
-                    sh '''#!/bin/bash
-                        set -e
-                        [[ "$(uname)" == "Darwin" ]] && URL="${MACOS_URL}" || URL="${LINUX_URL}"
-                        [ ! -f "${MASST_ZIP}.zip" ] && { curl -fsSL -o "${MASST_ZIP}.zip" "$URL" || wget -q -O "${MASST_ZIP}.zip" "$URL"; }
-                        rm -rf "${MASST_DIR}"
-                        unzip -qo "${MASST_ZIP}.zip" -d tmp && mv tmp/*/* "${MASST_DIR}" 2>/dev/null || mv tmp/* "${MASST_DIR}"
-                        chmod +x "${MASST_DIR}"/MASSTCLI*
-                        rm -rf tmp
-                    '''
+                    if (isUnix()) {
+                        sh '''#!/bin/bash
+                            set -e
+                            [[ "$(uname)" == "Darwin" ]] && PLATFORM="MacOS" || PLATFORM="Linux"
+                            echo "$PLATFORM" > platform.txt
+                        '''
+                        env.DETECTED_PLATFORM = readFile('platform.txt').trim()
+                        env.DOWNLOAD_URL = env.DETECTED_PLATFORM == 'MacOS' ? env.MACOS_DOWNLOAD_URL : env.LINUX_DOWNLOAD_URL
+                        sh '''#!/bin/bash
+                            set -e
+                            [ "${DETECTED_PLATFORM}" = "Linux" ] && export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools
+                            [ ! -f "${MASST_ZIP}.zip" ] && { curl -L -o "${MASST_ZIP}.zip" "${DOWNLOAD_URL}" || wget -O "${MASST_ZIP}.zip" "${DOWNLOAD_URL}"; }
+                            [ -d "${MASST_DIR}" ] && rm -rf "${MASST_DIR}"
+                            TEMP=$(mktemp -d) && unzip -q "${MASST_ZIP}.zip" -d "${TEMP}"
+                            [ $(find "${TEMP}" -mindepth 1 -maxdepth 1 -type d | wc -l) -eq 1 ] && mv "$(find "${TEMP}" -mindepth 1 -maxdepth 1 -type d)" "${MASST_DIR}" || { mkdir -p "${MASST_DIR}" && mv "${TEMP}"/* "${MASST_DIR}/"; }
+                            chmod +x "$(find "${MASST_DIR}" -type f -name "MASSTCLI*")"
+                            echo "${DETECTED_PLATFORM} ready"
+                        '''
+                    }
                 }
             }
         }
         stage('Execute') {
             steps {
-                sh """#!/bin/bash
-                    set -e
-                    export PATH=\$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools
-                    [ -f "${INPUT_FILE}" ] && [ -f "${CONFIG_FILE}" ] || { echo "ERROR: Input files missing"; exit 1; }
-                    MASST_EXE="${MASST_DIR}/\$(ls ${MASST_DIR} | grep MASSTCLI | head -1)"
-                    EXT="\${INPUT_FILE##*.}"
+                script {
+                    if (isUnix()) {
+                        sh """#!/bin/bash
+                            set -e
 
-                    echo "Using Shield Level: ${params.SHIELD_LEVEL}"
+                            # Set Android environment if Linux
+                            [ "${env.DETECTED_PLATFORM}" = "Linux" ] && export PATH=\$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools
 
-                    case "\${EXT,,}" in
-                        xcarchive|ipa)
-                            printf "%s\\n" "${params.SHIELD_LEVEL}" | "\$MASST_EXE" -input="${INPUT_FILE}" -config="${CONFIG_FILE}" -identity="${IDENTITY}" ;;
-                        aab|apk)
-                            if [ "${params.IS_DEBUG}" = "true" ]; then
-                                printf "%s\\n" "${params.SHIELD_LEVEL}" | "\$MASST_EXE" -input="${INPUT_FILE}" -config="${CONFIG_FILE}"
-                            else
-                                printf "%s\\n" "${params.SHIELD_LEVEL}" | "\$MASST_EXE" -input="${INPUT_FILE}" -config="${CONFIG_FILE}" -keystore="${KEYSTORE_FILE}" -storePassword="${KEYSTORE_PASSWORD}" -alias="${KEY_ALIAS}" -keyPassword="${KEY_PASSWORD}" -v=true -apk
-                            fi ;;
-                        *) echo "ERROR: Unsupported file type: \${EXT}"; exit 1 ;;
-                    esac
-                """
+                            # Validate input files
+                            [ -e "${INPUT_FILE}" ] || { echo "ERROR: ${INPUT_FILE} not found"; exit 1; }
+                            [ -f "${CONFIG_FILE}" ] || { echo "ERROR: ${CONFIG_FILE} not found"; exit 1; }
+
+                            # Find MASSTCLI executable
+                            MASST_EXE=\$(find "${MASST_DIR}" -type f -name "MASSTCLI*" -print -quit)
+                            [ -x "\$MASST_EXE" ] || { echo "ERROR: MASSTCLI executable not found"; exit 1; }
+
+                            USER_INPUT="${params.SHIELD_LEVEL}"
+                            echo "Using Shield Level: \$USER_INPUT"
+
+                            # Detect file extension
+                            EXT=\$(echo "${INPUT_FILE}" | awk -F. '{print tolower(\$NF)}')
+
+                            case "\$EXT" in
+                                xcarchive|ipa)
+                                    # iOS builds
+                                    printf "%s\\n" "\$USER_INPUT" | "\$MASST_EXE" \\
+                                        -input="${INPUT_FILE}" \\
+                                        -config="${CONFIG_FILE}" \\
+                                        -identity="${IDENTITY}"
+                                    ;;
+                                aab|apk)
+                                    # Android builds
+                                    if [ "${params.IS_DEBUG}" = "true" ]; then
+                                        # Debug build - no signing
+                                        printf "%s\\n" "\$USER_INPUT" | "\$MASST_EXE" \\
+                                            -input="${INPUT_FILE}" \\
+                                            -config="${CONFIG_FILE}"
+                                    else
+                                        # Release build - with keystore signing
+                                        [ -f "${KEYSTORE_FILE}" ] || { echo "ERROR: Keystore not found"; exit 1; }
+
+                                        printf "%s\\n" "\$USER_INPUT" | "\$MASST_EXE" \\
+                                            -input="${INPUT_FILE}" \\
+                                            -config="${CONFIG_FILE}" \\
+                                            -keystore="${KEYSTORE_FILE}" \\
+                                            -storePassword=${KEYSTORE_PASSWORD} \\
+                                            -alias=${KEY_ALIAS} \\
+                                            -keyPassword=${KEY_PASSWORD} \\
+                                            -v=true -apk
+                                    fi
+                                    ;;
+                                *)
+                                    echo "ERROR: Unsupported file type: ${INPUT_FILE}"
+                                    exit 1
+                                    ;;
+                            esac
+
+                            echo "✅ Build complete"
+                        """
+                    }
+                }
             }
         }
         stage('Archive') {
             steps {
-                sh '''#!/bin/bash
-                    mkdir -p "${ARTIFACTS_DIR}"
-                    echo "Build: $(uname) | Shield: ${SHIELD_LEVEL} | ${IS_DEBUG} | $(date '+%Y-%m-%d %H:%M:%S')" > "${ARTIFACTS_DIR}/report.txt"
-                    rm -rf "${MASST_DIR}" "${MASST_ZIP}.zip"
-                '''
+                script {
+                    if (isUnix()) {
+                        sh """#!/bin/bash
+                            mkdir -p "${ARTIFACTS_DIR}"
+                            echo "Build: ${env.DETECTED_PLATFORM} | ${params.IS_DEBUG ? 'DEBUG' : 'RELEASE'} | \$(date)" > "${ARTIFACTS_DIR}/report.txt"
+                            rm -rf "${MASST_DIR}" "${MASST_ZIP}.zip"
+                        """
+                    }
+                }
                 archiveArtifacts artifacts: 'output/**', allowEmptyArchive: true
             }
         }
     }
     post {
-        success { echo "✅ Shield Level ${params.SHIELD_LEVEL} | ${params.IS_DEBUG ? 'DEBUG' : 'RELEASE'} build completed" }
-        failure { echo "❌ Build failed" }
+        success { echo "${env.DETECTED_PLATFORM} ${params.IS_DEBUG ? 'DEBUG' : 'RELEASE'} - SUCCESS" }
+        failure { echo 'Failed' }
     }
 }
