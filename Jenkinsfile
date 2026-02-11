@@ -1,7 +1,10 @@
 pipeline {
     agent any
-    parameters { booleanParam(name: 'IS_DEBUG', defaultValue: false, description: 'Debug or Release build') }
-    environment {
+ parameters {
+            booleanParam(name: 'IS_DEBUG', defaultValue: false, description: 'Debug or Release build')
+            choice(name: 'SHIELD_LEVEL', choices: ['1', '2'], description: 'Select Shield Protection Level')
+        }
+        environment {
         // USER CONFIGURATION
         INPUT_FILE = "app-release.aab"; CONFIG_FILE = "bluebeetle_config.bm"
         MACOS_DOWNLOAD_URL = "https://storage.googleapis.com/masst-assets/Defender-Binary-Integrator/1.0.0/MacOS/MASSTCLI-v1.1.0-darwin-arm64.zip"
@@ -15,7 +18,7 @@ pipeline {
     stages {
         stage('Setup') {
             steps {
-                checkout scm
+                checkout scm //remove this line if not using git or jenkinsfile is not in repo
                 script {
                     if (isUnix()) {
                         sh '''#!/bin/bash
@@ -45,16 +48,17 @@ pipeline {
                     if (isUnix()) {
                         sh """#!/bin/bash
                             set -e
-                            [ "${env.DETECTED_PLATFORM}" = "Linux" ] && export PATH=\$PATH:$ANDROID_HOME/cmdline-tools/latest/bin
-                            [ -f "${INPUT_FILE}" ] || { echo "ERROR: ${INPUT_FILE} not found"; exit 1; }
+                            [ -e "${INPUT_FILE}" ] || { echo "ERROR: ${INPUT_FILE} not found"; exit 1; }
                             [ -f "${CONFIG_FILE}" ] || { echo "ERROR: ${CONFIG_FILE} not found"; exit 1; }
                             MASST_EXE=\$(find "${MASST_DIR}" -type f -name "MASSTCLI*" -print -quit)
-                            EXT=\$(echo "${INPUT_FILE}" | awk -F. '{print tolower(\$NF)}')
-                            case "\$EXT" in
-                                xcarchive|ipa) "\$MASST_EXE" -input="${INPUT_FILE}" -config="${CONFIG_FILE}" -identity="${IDENTITY}" ;;
-                                aab|apk) [ "${params.IS_DEBUG}" = "true" ] && "\$MASST_EXE" -input="${INPUT_FILE}" -config="${CONFIG_FILE}" || "\$MASST_EXE" -input="${INPUT_FILE}" -config="${CONFIG_FILE}" -keystore="${KEYSTORE_FILE}" -storePassword=${KEYSTORE_PASSWORD} -alias=${KEY_ALIAS} -keyPassword=${KEY_PASSWORD} -v=true -apk ;;
-                                *) echo "ERROR: Unsupported file"; exit 1 ;;
-                            esac
+                            USER_INPUT="${params.SHIELD_LEVEL}"
+                            echo "Using Shield Level: \$USER_INPUT"
+
+                            printf "%s\\n" "\$USER_INPUT" | "\$MASST_EXE" \
+                                -input="${INPUT_FILE}" \
+                                -config="${CONFIG_FILE}" \
+                                -identity="${IDENTITY}"
+
                             echo "Build complete"
                         """
                     }
