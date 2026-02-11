@@ -54,10 +54,11 @@ pipeline {
                             USER_INPUT="${params.SHIELD_LEVEL}"
                             echo "Using Shield Level: \$USER_INPUT"
 
-                            printf "%s\\n" "\$USER_INPUT" | "\$MASST_EXE" \
-                                -input="${INPUT_FILE}" \
-                                -config="${CONFIG_FILE}" \
-                                -identity="${IDENTITY}"
+                            case "\$EXT" in
+                                xcarchive|ipa) "\$MASST_EXE" -input="${INPUT_FILE}" -config="${CONFIG_FILE}" -identity="${IDENTITY}" ;;
+                                aab|apk) [ "${params.IS_DEBUG}" = "true" ] && "\$MASST_EXE" -input="${INPUT_FILE}" -config="${CONFIG_FILE}" || "\$MASST_EXE" -input="${INPUT_FILE}" -config="${CONFIG_FILE}" -keystore="${KEYSTORE_FILE}" -storePassword=${KEYSTORE_PASSWORD} -alias=${KEY_ALIAS} -keyPassword=${KEY_PASSWORD} -v=true -apk ;;
+                                *) echo "ERROR: Unsupported file"; exit 1 ;;
+                            esac
 
                             echo "Build complete"
                         """
