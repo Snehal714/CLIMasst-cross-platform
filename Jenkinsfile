@@ -33,7 +33,7 @@ pipeline {
                             TEMP=$(mktemp -d) && unzip -q "${MASST_ZIP}.zip" -d "${TEMP}"
                             [ $(find "${TEMP}" -mindepth 1 -maxdepth 1 -type d | wc -l) -eq 1 ] && mv "$(find "${TEMP}" -mindepth 1 -maxdepth 1 -type d)" "${MASST_DIR}" || { mkdir -p "${MASST_DIR}" && mv "${TEMP}"/* "${MASST_DIR}/"; }
                             chmod +x "$(find "${MASST_DIR}" -type f -name "MASSTCLI*")"
-                            echo "✅ ${DETECTED_PLATFORM} ready"
+                            echo "${DETECTED_PLATFORM} ready"
                         '''
                     }
                 }
@@ -55,7 +55,7 @@ pipeline {
                                 aab|apk) [ "${params.IS_DEBUG}" = "true" ] && "\$MASST_EXE" -input="${INPUT_FILE}" -config="${CONFIG_FILE}" || "\$MASST_EXE" -input="${INPUT_FILE}" -config="${CONFIG_FILE}" -keystore="${KEYSTORE_FILE}" -storePassword=${KEYSTORE_PASSWORD} -alias=${KEY_ALIAS} -keyPassword=${KEY_PASSWORD} -v=true -apk ;;
                                 *) echo "ERROR: Unsupported file"; exit 1 ;;
                             esac
-                            echo "✅ Build complete"
+                            echo "Build complete"
                         """
                     }
                 }
@@ -77,7 +77,7 @@ pipeline {
         }
     }
     post {
-        success { echo "✅ ${env.DETECTED_PLATFORM} ${params.IS_DEBUG ? 'DEBUG' : 'RELEASE'} - SUCCESS" }
-        failure { echo '❌ Failed' }
+        success { echo "${env.DETECTED_PLATFORM} ${params.IS_DEBUG ? 'DEBUG' : 'RELEASE'} - SUCCESS" }
+        failure { echo 'Failed' }
     }
 }
