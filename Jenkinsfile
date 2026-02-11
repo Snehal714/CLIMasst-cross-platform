@@ -48,19 +48,60 @@ pipeline {
                     if (isUnix()) {
                         sh """#!/bin/bash
                             set -e
-                            [ -e "${INPUT_FILE}" ] || { echo "ERROR: ${INPUT_FILE} not found"; exit 1; }
+
+                            # Set Android environment if Linux
+                            [ "${env.DETECTED_PLATFORM}" = "Linux" ] && export PATH=\$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools
+
+                            # Validate input files
+                            [ -f "${INPUT_FILE}" ] || { echo "ERROR: ${INPUT_FILE} not found"; exit 1; }
                             [ -f "${CONFIG_FILE}" ] || { echo "ERROR: ${CONFIG_FILE} not found"; exit 1; }
+
+                            # Find MASSTCLI executable
                             MASST_EXE=\$(find "${MASST_DIR}" -type f -name "MASSTCLI*" -print -quit)
+                            [ -x "\$MASST_EXE" ] || { echo "ERROR: MASSTCLI executable not found"; exit 1; }
+
                             USER_INPUT="${params.SHIELD_LEVEL}"
                             echo "Using Shield Level: \$USER_INPUT"
 
+                            # Detect file extension
+                            EXT=\$(echo "${INPUT_FILE}" | awk -F. '{print tolower(\$NF)}')
+
                             case "\$EXT" in
-                                xcarchive|ipa) "\$MASST_EXE" -input="${INPUT_FILE}" -config="${CONFIG_FILE}" -identity="${IDENTITY}" ;;
-                                aab|apk) [ "${params.IS_DEBUG}" = "true" ] && "\$MASST_EXE" -input="${INPUT_FILE}" -config="${CONFIG_FILE}" || "\$MASST_EXE" -input="${INPUT_FILE}" -config="${CONFIG_FILE}" -keystore="${KEYSTORE_FILE}" -storePassword=${KEYSTORE_PASSWORD} -alias=${KEY_ALIAS} -keyPassword=${KEY_PASSWORD} -v=true -apk ;;
-                                *) echo "ERROR: Unsupported file"; exit 1 ;;
+                                xcarchive|ipa)
+                                    # iOS builds
+                                    printf "%s\\n" "\$USER_INPUT" | "\$MASST_EXE" \\
+                                        -input="${INPUT_FILE}" \\
+                                        -config="${CONFIG_FILE}" \\
+                                        -identity="${IDENTITY}"
+                                    ;;
+                                aab|apk)
+                                    # Android builds
+                                    if [ "${params.IS_DEBUG}" = "true" ]; then
+                                        # Debug build - no signing
+                                        printf "%s\\n" "\$USER_INPUT" | "\$MASST_EXE" \\
+                                            -input="${INPUT_FILE}" \\
+                                            -config="${CONFIG_FILE}"
+                                    else
+                                        # Release build - with keystore signing
+                                        [ -f "${KEYSTORE_FILE}" ] || { echo "ERROR: Keystore not found"; exit 1; }
+
+                                        printf "%s\\n" "\$USER_INPUT" | "\$MASST_EXE" \\
+                                            -input="${INPUT_FILE}" \\
+                                            -config="${CONFIG_FILE}" \\
+                                            -keystore="${KEYSTORE_FILE}" \\
+                                            -storePassword=${KEYSTORE_PASSWORD} \\
+                                            -alias=${KEY_ALIAS} \\
+                                            -keyPassword=${KEY_PASSWORD} \\
+                                            -v=true -apk
+                                    fi
+                                    ;;
+                                *)
+                                    echo "ERROR: Unsupported file type: ${INPUT_FILE}"
+                                    exit 1
+                                    ;;
                             esac
 
-                            echo "Build complete"
+                            echo "✅ Build complete"
                         """
                     }
                 }
