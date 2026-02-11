@@ -22,8 +22,8 @@ pipeline {
         KEY_PASSWORD = "bugs@1234"
 
         // Android SDK paths
-        ANDROID_HOME = "/home/snehal_mane/Android/Sdk"
-        ANDROID_SDK_ROOT = "/home/snehal_mane/Android/Sdk"
+        ANDROID_HOME = "/var/lib/jenkins/Android/Sdk"
+        ANDROID_SDK_ROOT = "/var/lib/jenkins/Android/Sdk"
     }
 
     options {
