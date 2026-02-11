@@ -10,9 +10,6 @@ pipeline {
     }
 
     environment {
-        // ========================================
-        // USER CONFIGURATION - Edit these values
-        // ========================================
 
         // Input Files (same for all platforms)
         INPUT_FILE = "app-release.aab"
@@ -35,9 +32,7 @@ pipeline {
         // Apple Identity (for iOS builds)
         IDENTITY = "Apple Distribution: Bugsmirror Research private limited (BPKUYCFJ74)"
 
-        // ========================================
-        // DO NOT EDIT BELOW THIS LINE
-        // ========================================
+
         MASST_DIR = "MASSTCLI_EXTRACTED"
         ARTIFACTS_DIR = "output"
         MASST_ZIP = "MASSTCLI"
@@ -78,18 +73,6 @@ pipeline {
                         env.DETECTED_PLATFORM = "Windows"
                         env.DOWNLOAD_URL = "https://storage.googleapis.com/masst-assets/Defender-Binary-Integrator/1.0.0/Windows/MASSTCLI-v1.1.0-windows-amd64.zip"
                     }
-
-                    echo """
-========================================
-Build Configuration (Auto-Detected)
-========================================
-Platform: ${env.DETECTED_PLATFORM}
-Build Mode: ${params.IS_DEBUG ? 'DEBUG' : 'RELEASE'}
-Download URL: ${env.DOWNLOAD_URL}
-Input File: ${env.INPUT_FILE}
-Config File: ${env.CONFIG_FILE}
-========================================
-                    """
                 }
             }
         }
@@ -204,40 +187,16 @@ Config File: ${env.CONFIG_FILE}
                             # Detect input extension (case-insensitive)
                             case "\$(echo "${env.INPUT_FILE}" | awk -F. '{print tolower(\$NF)}')" in
                                 xcarchive|ipa)
-                                    echo "=========================================="
-                                    echo "MASSTCLI Execution Configuration (iOS/IDENTITY)"
-                                    echo "=========================================="
-                                    echo "  Platform: ${env.DETECTED_PLATFORM}"
-                                    echo "  Input: \${INPUT_PATH}"
-                                    echo "  Config: \${CONFIG_PATH}"
-                                    echo ""
-                                    echo "🔐 Using Apple identity for both DEBUG and RELEASE"
-                                    echo ""
                                     "\${MASST_EXE}" -input="\${INPUT_PATH}" -config="\${CONFIG_PATH}" -identity="${IDENTITY}" || exit 1
                                     ;;
                                 aab|apk)
-                                    echo "=========================================="
-                                    echo "MASSTCLI Execution Configuration (Android)"
-                                    echo "=========================================="
-                                    echo "  Platform: ${env.DETECTED_PLATFORM}"
-                                    echo "  Build Mode: ${isDebug ? 'DEBUG' : 'RELEASE'}"
-                                    echo "  Input: \${INPUT_PATH}"
-                                    echo "  Config: \${CONFIG_PATH}"
-                                    echo ""
-
                                     if [ "${isDebug}" = "true" ]; then
-                                        echo "🔧 Running in DEBUG mode (simple command)..."
-                                        echo ""
+
                                         "\${MASST_EXE}" -input="\${INPUT_PATH}" -config="\${CONFIG_PATH}" || exit 1
                                     else
-                                        echo "🚀 Running in RELEASE mode (with keystore signing)..."
-                                        echo ""
+
                                         KEYSTORE_PATH="${WORKSPACE}/${KEYSTORE_FILE}"
                                         [ -f "\${KEYSTORE_PATH}" ] || { echo "ERROR: Keystore file not found at \${KEYSTORE_PATH}"; exit 1; }
-
-                                        echo "  Keystore: \${KEYSTORE_PATH}"
-                                        echo "  Alias: ${KEY_ALIAS}"
-                                        echo ""
 
                                         "\${MASST_EXE}" -input="\${INPUT_PATH}" \
                                             -config="\${CONFIG_PATH}" \
@@ -279,60 +238,28 @@ Config File: ${env.CONFIG_FILE}
 
                                 for %%A in ("!INPUT_PATH!") do set "EXT=%%~xA"
                                 if /I "!EXT!"==".xcarchive" (
-                                    echo ==========================================
-                                    echo MASSTCLI Execution Configuration (iOS/IDENTITY)
-                                    echo ==========================================
-                                    echo   Platform: %DETECTED_PLATFORM%
-                                    echo   Input: !INPUT_PATH!
-                                    echo   Config: !CONFIG_PATH!
-                                    echo.
-                                    echo 🔐 Using Apple identity for both DEBUG and RELEASE
-                                    echo.
                                     "!MASST_EXE!" -input="!INPUT_PATH!" -config="!CONFIG_PATH!" -identity="%IDENTITY%" || exit /b 1
                                     endlocal
                                     exit /b 0
                                 ) else if /I "!EXT!"==".ipa" (
-                                    echo ==========================================
-                                    echo MASSTCLI Execution Configuration (iOS/IDENTITY)
-                                    echo ==========================================
-                                    echo   Platform: %DETECTED_PLATFORM%
-                                    echo   Input: !INPUT_PATH!
-                                    echo   Config: !CONFIG_PATH!
-                                    echo.
-                                    echo 🔐 Using Apple identity for both DEBUG and RELEASE
-                                    echo.
                                     "!MASST_EXE!" -input="!INPUT_PATH!" -config="!CONFIG_PATH!" -identity="%IDENTITY%" || exit /b 1
                                     endlocal
                                     exit /b 0
                                 ) else (
-                                    echo ==========================================
-                                    echo MASSTCLI Execution Configuration (Android)
-                                    echo ==========================================
-                                    echo   Platform: %DETECTED_PLATFORM%
-                                    echo   Build Mode: ${isDebug ? 'DEBUG' : 'RELEASE'}
-                                    echo   Input: !INPUT_PATH!
-                                    echo   Config: !CONFIG_PATH!
-                                    echo.
 
                                     if "${isDebug}"=="true" (
-                                        echo 🔧 Running in DEBUG mode (simple command)...
-                                        echo.
+
                                         "!MASST_EXE!" -input=!INPUT_PATH! -config=!CONFIG_PATH! || exit /b 1
                                         endlocal
                                         exit /b 0
                                     ) else (
-                                        echo 🚀 Running in RELEASE mode (with keystore signing)...
-                                        echo.
+
                                         set "KEYSTORE_PATH=%WORKSPACE%\\%KEYSTORE_FILE%"
 
                                         if not exist "!KEYSTORE_PATH!" (
                                             echo ERROR: Keystore file not found at !KEYSTORE_PATH!
                                             exit /b 1
                                         )
-
-                                        echo   Keystore: !KEYSTORE_PATH!
-                                        echo   Alias: %KEY_ALIAS%
-                                        echo.
 
                                         "!MASST_EXE!" -input=!INPUT_PATH! ^
                                             -config=!CONFIG_PATH! ^
@@ -353,31 +280,6 @@ Config File: ${env.CONFIG_FILE}
                 }
             }
         }
-
-        stage('Debug - Check Output') {
-            steps {
-                script {
-                    if (isUnix()) {
-                        sh '''#!/bin/bash
-                            echo "=== Checking workspace contents for ${DETECTED_PLATFORM} ==="
-                            ls -la "${WORKSPACE}"
-                            echo ""
-                            echo "=== Checking for output directory ==="
-                            if [ -d "${WORKSPACE}/output" ]; then
-                                echo "Output directory exists:"
-                                ls -la "${WORKSPACE}/output"
-                            else
-                                echo "⚠️  Output directory NOT found"
-                            fi
-                            echo ""
-                            echo "=== Looking for any APK/AAB/IPA files ==="
-                            find "${WORKSPACE}" -name "*.apk" -o -name "*.aab" -o -name "*.ipa" | head -10
-                        '''
-                    }
-                }
-            }
-        }
-
         stage('Archive & Report') {
             steps {
                 script {
