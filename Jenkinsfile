@@ -12,16 +12,16 @@ pipeline {
     environment {
         MASST_DIR = "MASSTCLI_EXTRACTED"
         ARTIFACTS_DIR = "output"
-        CONFIG_FILE = "bluebeetle_config.bm"
         MASST_ZIP = "MASSTCLI"
-        DOWNLOAD_URL = "https://storage.googleapis.com/masst-assets/Defender-Binary-Integrator/1.0.0/Linux/MASSTCLI-v1.1.0-linux-amd64.zip"
-        INPUT_FILE = "app-release.aab"
+
+        // File configurations
         KEYSTORE_FILE = "Bluebeetle.jks"
         KEYSTORE_PASSWORD = "bugs@1234"
         KEY_ALIAS = "key0"
         KEY_PASSWORD = "bugs@1234"
+        IDENTITY = "Apple Distribution: Bugsmirror Research private limited (BPKUYCFJ74)"
 
-        // Android SDK paths
+        // Android SDK paths (for Linux/AAB builds)
         ANDROID_HOME = "/home/snehal_mane/Android/Sdk"
         ANDROID_SDK_ROOT = "/home/snehal_mane/Android/Sdk"
     }
@@ -32,6 +32,59 @@ pipeline {
     }
 
     stages {
+        stage('Determine Configuration') {
+            steps {
+                script {
+                    if (isUnix()) {
+                        sh '''#!/bin/bash
+                            set -e
+
+                            # Detect platform
+                            if [[ "$(uname)" == "Darwin" ]]; then
+                                echo "PLATFORM=MacOS" > platform.env
+                            else
+                                echo "PLATFORM=Linux" > platform.env
+                            fi
+                        '''
+
+                        // Read platform from file
+                        def platformEnv = readFile('platform.env').trim()
+                        def detectedPlatform = platformEnv.split('=')[1]
+                        env.DETECTED_PLATFORM = detectedPlatform
+
+                        // Set platform-specific variables
+                        if (detectedPlatform == 'MacOS') {
+                            env.DOWNLOAD_URL = "https://storage.googleapis.com/masst-assets/Defender-Binary-Integrator/1.0.0/MacOS/MASSTCLI-v1.1.0-darwin-arm64.zip"
+                            env.INPUT_FILE = "meal_metrics.ipa"
+                            env.CONFIG_FILE = "config.bm"
+                        } else {
+                            env.DOWNLOAD_URL = "https://storage.googleapis.com/masst-assets/Defender-Binary-Integrator/1.0.0/Linux/MASSTCLI-v1.1.0-linux-amd64.zip"
+                            env.INPUT_FILE = "app-release.aab"
+                            env.CONFIG_FILE = "bluebeetle_config.bm"
+                        }
+                    } else {
+                        // Windows platform
+                        env.DETECTED_PLATFORM = "Windows"
+                        env.DOWNLOAD_URL = "https://storage.googleapis.com/masst-assets/Defender-Binary-Integrator/1.0.0/Windows/MASSTCLI-v1.1.0-windows-amd64.zip"
+                        env.INPUT_FILE = "app-release.aab"
+                        env.CONFIG_FILE = "bluebeetle_config.bm"
+                    }
+
+                    echo """
+========================================
+Build Configuration (Auto-Detected)
+========================================
+Platform: ${env.DETECTED_PLATFORM}
+Build Mode: ${params.IS_DEBUG ? 'DEBUG' : 'RELEASE'}
+Download URL: ${env.DOWNLOAD_URL}
+Input File: ${env.INPUT_FILE}
+Config File: ${env.CONFIG_FILE}
+========================================
+                    """
+                }
+            }
+        }
+
         stage('Checkout & Prepare') {
             steps {
                 checkout scm
@@ -40,16 +93,18 @@ pipeline {
                         sh '''#!/bin/bash
                             set -e
 
-                            # Source environment
-                            export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools
+                            # Set Android environment if Linux
+                            if [ "${DETECTED_PLATFORM}" = "Linux" ]; then
+                                export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools
+                            fi
 
                             # Download MASSTCLI if not present
                             if [ ! -f "${WORKSPACE}/${MASST_ZIP}.zip" ]; then
-                                echo "Downloading MASSTCLI..."
+                                echo "Downloading MASSTCLI for ${DETECTED_PLATFORM}..."
                                 curl -L --progress-bar -o "${WORKSPACE}/${MASST_ZIP}.zip" "${DOWNLOAD_URL}" || \
                                 wget -O "${WORKSPACE}/${MASST_ZIP}.zip" "${DOWNLOAD_URL}" || exit 1
                             fi
-                            echo "✅ MASSTCLI.zip ready"
+                            echo "✅ MASSTCLI.zip ready for ${DETECTED_PLATFORM}"
                         '''
                     } else {
                         bat '''
@@ -84,7 +139,7 @@ pipeline {
                                 fi
 
                                 chmod +x "$(find "${MASST_DIR}" -type f -name "MASSTCLI*" | head -1)"
-                                echo "✅ MASSTCLI extracted and verified"
+                                echo "✅ MASSTCLI extracted and verified for ${DETECTED_PLATFORM}"
                             '''
                         } else {
                             bat '''
@@ -111,37 +166,41 @@ pipeline {
                         sh """#!/bin/bash
                             set -e
 
-                            # Set Android environment
-                            export PATH=\$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools
+                            # Set Android environment if Linux
+                            if [ "${env.DETECTED_PLATFORM}" = "Linux" ]; then
+                                export PATH=\$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools
+                            fi
 
                             # Validate input files exist
-                            [ -f "${WORKSPACE}/${INPUT_FILE}" ] || { echo "ERROR: ${INPUT_FILE} not found"; exit 1; }
-                            [ -f "${WORKSPACE}/${CONFIG_FILE}" ] || { echo "ERROR: ${CONFIG_FILE} not found"; exit 1; }
+                            [ -f "${WORKSPACE}/${env.INPUT_FILE}" ] || { echo "ERROR: ${env.INPUT_FILE} not found"; exit 1; }
+                            [ -f "${WORKSPACE}/${env.CONFIG_FILE}" ] || { echo "ERROR: ${env.CONFIG_FILE} not found"; exit 1; }
 
                             # Find MASSTCLI executable
                             MASST_EXE=\$(find "${MASST_DIR}" -type f -name "MASSTCLI*" -print -quit)
                             [ -x "\${MASST_EXE}" ] || { echo "ERROR: MASSTCLI executable not found or not executable"; exit 1; }
 
-                            INPUT_PATH="${WORKSPACE}/${INPUT_FILE}"
-                            CONFIG_PATH="${WORKSPACE}/${CONFIG_FILE}"
+                            INPUT_PATH="${WORKSPACE}/${env.INPUT_FILE}"
+                            CONFIG_PATH="${WORKSPACE}/${env.CONFIG_FILE}"
 
                             # Detect input extension (case-insensitive)
-                            case "\$(echo "${INPUT_FILE}" | awk -F. '{print tolower(\$NF)}')" in
+                            case "\$(echo "${env.INPUT_FILE}" | awk -F. '{print tolower(\$NF)}')" in
                                 xcarchive|ipa)
                                     echo "=========================================="
-                                    echo "MASSTCLI Execution Configuration (IDENTITY)"
+                                    echo "MASSTCLI Execution Configuration (iOS/IDENTITY)"
                                     echo "=========================================="
+                                    echo "  Platform: ${env.DETECTED_PLATFORM}"
                                     echo "  Input: \${INPUT_PATH}"
                                     echo "  Config: \${CONFIG_PATH}"
                                     echo ""
                                     echo "🔐 Using Apple identity for both DEBUG and RELEASE"
                                     echo ""
-                                    "\${MASST_EXE}" -input="\${INPUT_PATH}" -config="\${CONFIG_PATH}" -identity="Apple Distribution: My Company" || exit 1
+                                    "\${MASST_EXE}" -input="\${INPUT_PATH}" -config="\${CONFIG_PATH}" -identity="${IDENTITY}" || exit 1
                                     ;;
-                                *)
+                                aab|apk)
                                     echo "=========================================="
-                                    echo "MASSTCLI Execution Configuration"
+                                    echo "MASSTCLI Execution Configuration (Android)"
                                     echo "=========================================="
+                                    echo "  Platform: ${env.DETECTED_PLATFORM}"
                                     echo "  Build Mode: ${isDebug ? 'DEBUG' : 'RELEASE'}"
                                     echo "  Input: \${INPUT_PATH}"
                                     echo "  Config: \${CONFIG_PATH}"
@@ -170,6 +229,10 @@ pipeline {
                                             -v=true -apk || exit 1
                                     fi
                                     ;;
+                                *)
+                                    echo "ERROR: Unsupported file type: ${env.INPUT_FILE}"
+                                    exit 1
+                                    ;;
                             esac
 
                             echo ""
@@ -196,32 +259,35 @@ pipeline {
                                 for %%A in ("!INPUT_PATH!") do set "EXT=%%~xA"
                                 if /I "!EXT!"==".xcarchive" (
                                     echo ==========================================
-                                    echo MASSTCLI Execution Configuration (IDENTITY)
+                                    echo MASSTCLI Execution Configuration (iOS/IDENTITY)
                                     echo ==========================================
+                                    echo   Platform: %DETECTED_PLATFORM%
                                     echo   Input: !INPUT_PATH!
                                     echo   Config: !CONFIG_PATH!
                                     echo.
                                     echo 🔐 Using Apple identity for both DEBUG and RELEASE
                                     echo.
-                                    "!MASST_EXE!" -input="!INPUT_PATH!" -config="!CONFIG_PATH!" -identity="Apple Distribution: My Company" || exit /b 1
+                                    "!MASST_EXE!" -input="!INPUT_PATH!" -config="!CONFIG_PATH!" -identity="%IDENTITY%" || exit /b 1
                                     endlocal
                                     exit /b 0
                                 ) else if /I "!EXT!"==".ipa" (
                                     echo ==========================================
-                                    echo MASSTCLI Execution Configuration (IDENTITY)
+                                    echo MASSTCLI Execution Configuration (iOS/IDENTITY)
                                     echo ==========================================
+                                    echo   Platform: %DETECTED_PLATFORM%
                                     echo   Input: !INPUT_PATH!
                                     echo   Config: !CONFIG_PATH!
                                     echo.
                                     echo 🔐 Using Apple identity for both DEBUG and RELEASE
                                     echo.
-                                    "!MASST_EXE!" -input="!INPUT_PATH!" -config="!CONFIG_PATH!" -identity="Apple Distribution: My Company" || exit /b 1
+                                    "!MASST_EXE!" -input="!INPUT_PATH!" -config="!CONFIG_PATH!" -identity="%IDENTITY%" || exit /b 1
                                     endlocal
                                     exit /b 0
                                 ) else (
                                     echo ==========================================
-                                    echo MASSTCLI Execution Configuration
+                                    echo MASSTCLI Execution Configuration (Android)
                                     echo ==========================================
+                                    echo   Platform: %DETECTED_PLATFORM%
                                     echo   Build Mode: ${isDebug ? 'DEBUG' : 'RELEASE'}
                                     echo   Input: !INPUT_PATH!
                                     echo   Config: !CONFIG_PATH!
@@ -253,7 +319,7 @@ pipeline {
                                             -storePassword=%KEYSTORE_PASSWORD% ^
                                             -alias=%KEY_ALIAS% ^
                                             -keyPassword=%KEY_PASSWORD% ^
-                                            -v=true || exit /b 1
+                                            -v=true -apk || exit /b 1
                                         endlocal
                                         exit /b 0
                                     )
@@ -266,12 +332,13 @@ pipeline {
                 }
             }
         }
+
         stage('Debug - Check Output') {
             steps {
                 script {
                     if (isUnix()) {
                         sh '''#!/bin/bash
-                            echo "=== Checking workspace contents ==="
+                            echo "=== Checking workspace contents for ${DETECTED_PLATFORM} ==="
                             ls -la "${WORKSPACE}"
                             echo ""
                             echo "=== Checking for output directory ==="
@@ -282,8 +349,8 @@ pipeline {
                                 echo "⚠️  Output directory NOT found"
                             fi
                             echo ""
-                            echo "=== Looking for any APK/AAB files ==="
-                            find "${WORKSPACE}" -name "*.apk" -o -name "*.aab" | head -10
+                            echo "=== Looking for any APK/AAB/IPA files ==="
+                            find "${WORKSPACE}" -name "*.apk" -o -name "*.aab" -o -name "*.ipa" | head -10
                         '''
                     }
                 }
@@ -304,21 +371,29 @@ pipeline {
 
                             REPORT="${WORKSPACE}/${ARTIFACTS_DIR}/build_report.txt"
 
+                            # Determine stat command based on OS
+                            if [[ "\$(uname)" == "Darwin" ]]; then
+                                STAT_CMD="stat -f%z"
+                            else
+                                STAT_CMD="stat -c%s"
+                            fi
+
                             {
                                 echo "MASSTCLI Build Report"
                                 echo "===================================================="
+                                echo "Platform: ${env.DETECTED_PLATFORM}"
                                 echo "Job: ${JOB_NAME} | Build: ${BUILD_NUMBER}"
                                 echo "Build Mode: ${buildMode}"
                                 echo "Timestamp: \$(date '+%Y-%m-%d %H:%M:%S')"
                                 echo ""
                                 echo "Input Files:"
-                                [ -f "${WORKSPACE}/${INPUT_FILE}" ] && echo "  ${INPUT_FILE}: \$(stat -c%s "${WORKSPACE}/${INPUT_FILE}" 2>/dev/null || echo 'unknown') bytes"
-                                [ -f "${WORKSPACE}/${CONFIG_FILE}" ] && echo "  ${CONFIG_FILE}: \$(stat -c%s "${WORKSPACE}/${CONFIG_FILE}" 2>/dev/null || echo 'unknown') bytes"
+                                [ -f "${WORKSPACE}/${env.INPUT_FILE}" ] && echo "  ${env.INPUT_FILE}: \$(\${STAT_CMD} "${WORKSPACE}/${env.INPUT_FILE}" 2>/dev/null || echo 'unknown') bytes"
+                                [ -f "${WORKSPACE}/${env.CONFIG_FILE}" ] && echo "  ${env.CONFIG_FILE}: \$(\${STAT_CMD} "${WORKSPACE}/${env.CONFIG_FILE}" 2>/dev/null || echo 'unknown') bytes"
                                 echo ""
                                 echo "Output Files:"
                                 if [ -d "${WORKSPACE}/${ARTIFACTS_DIR}" ]; then
                                     find "${WORKSPACE}/${ARTIFACTS_DIR}" -type f ! -name "build_report.txt" 2>/dev/null | while read file; do
-                                        echo "  \$(basename "\$file"): \$(stat -c%s "\$file" 2>/dev/null || echo 'unknown') bytes"
+                                        echo "  \$(basename "\$file"): \$(\${STAT_CMD} "\$file" 2>/dev/null || echo 'unknown') bytes"
                                     done || echo "  No output files generated yet"
                                 else
                                     echo "  Output directory not created"
@@ -342,6 +417,7 @@ pipeline {
                             (
                                 echo MASSTCLI Build Report
                                 echo ====================================================
+                                echo Platform: %DETECTED_PLATFORM%
                                 echo Job: %JOB_NAME% - Build: %BUILD_NUMBER%
                                 echo Build Mode: ${buildMode}
                                 echo Timestamp: %DATE% %TIME%
@@ -418,7 +494,7 @@ pipeline {
         success {
             script {
                 def buildMode = params.IS_DEBUG ? 'DEBUG' : 'RELEASE'
-                echo "✅ Pipeline completed successfully - ${buildMode} build"
+                echo "✅ Pipeline completed successfully - ${env.DETECTED_PLATFORM} ${buildMode} build"
             }
         }
         failure {
