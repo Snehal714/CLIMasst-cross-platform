@@ -10,20 +10,37 @@ pipeline {
     }
 
     environment {
-        MASST_DIR = "MASSTCLI_EXTRACTED"
-        ARTIFACTS_DIR = "output"
-        MASST_ZIP = "MASSTCLI"
+        // ========================================
+        // USER CONFIGURATION - Edit these values
+        // ========================================
 
-        // File configurations
-        KEYSTORE_FILE = "Bluebeetle.jks"
-        KEYSTORE_PASSWORD = "bugs@1234"
-        KEY_ALIAS = "key0"
-        KEY_PASSWORD = "bugs@1234"
-        IDENTITY = "Apple Distribution: Bugsmirror Research private limited (BPKUYCFJ74)"
+        // Input Files (same for all platforms)
+        INPUT_FILE = "meal_metrics.ipa"
+        CONFIG_FILE = "config.bm"
+
+        // Download URLs (platform-specific binaries)
+        MACOS_DOWNLOAD_URL = "https://storage.googleapis.com/masst-assets/Defender-Binary-Integrator/1.0.0/MacOS/MASSTCLI-v1.1.0-darwin-arm64.zip"
+        LINUX_DOWNLOAD_URL = "https://storage.googleapis.com/masst-assets/Defender-Binary-Integrator/1.0.0/Linux/MASSTCLI-v1.1.0-linux-amd64.zip"
 
         // Android SDK paths (for Linux/AAB builds)
         ANDROID_HOME = "/home/snehal_mane/Android/Sdk"
         ANDROID_SDK_ROOT = "/home/snehal_mane/Android/Sdk"
+
+        // Keystore Configuration
+        KEYSTORE_FILE = "Bluebeetle.jks"
+        KEYSTORE_PASSWORD = "bugs@1234"
+        KEY_ALIAS = "key0"
+        KEY_PASSWORD = "bugs@1234"
+
+        // Apple Identity (for iOS builds)
+        IDENTITY = "Apple Distribution: Bugsmirror Research private limited (BPKUYCFJ74)"
+
+        // ========================================
+        // DO NOT EDIT BELOW THIS LINE
+        // ========================================
+        MASST_DIR = "MASSTCLI_EXTRACTED"
+        ARTIFACTS_DIR = "output"
+        MASST_ZIP = "MASSTCLI"
     }
 
     options {
@@ -41,33 +58,25 @@ pipeline {
 
                             # Detect platform
                             if [[ "$(uname)" == "Darwin" ]]; then
-                                echo "PLATFORM=MacOS" > platform.env
+                                echo "MacOS" > platform.txt
                             else
-                                echo "PLATFORM=Linux" > platform.env
+                                echo "Linux" > platform.txt
                             fi
                         '''
 
                         // Read platform from file
-                        def platformEnv = readFile('platform.env').trim()
-                        def detectedPlatform = platformEnv.split('=')[1]
-                        env.DETECTED_PLATFORM = detectedPlatform
+                        env.DETECTED_PLATFORM = readFile('platform.txt').trim()
 
-                        // Set platform-specific variables
-                        if (detectedPlatform == 'MacOS') {
-                            env.DOWNLOAD_URL = "https://storage.googleapis.com/masst-assets/Defender-Binary-Integrator/1.0.0/MacOS/MASSTCLI-v1.1.0-darwin-arm64.zip"
-                            env.INPUT_FILE = "meal_metrics.ipa"
-                            env.CONFIG_FILE = "config.bm"
+                        // Set platform-specific download URL
+                        if (env.DETECTED_PLATFORM == 'MacOS') {
+                            env.DOWNLOAD_URL = env.MACOS_DOWNLOAD_URL
                         } else {
-                            env.DOWNLOAD_URL = "https://storage.googleapis.com/masst-assets/Defender-Binary-Integrator/1.0.0/Linux/MASSTCLI-v1.1.0-linux-amd64.zip"
-                            env.INPUT_FILE = "app-release.aab"
-                            env.CONFIG_FILE = "bluebeetle_config.bm"
+                            env.DOWNLOAD_URL = env.LINUX_DOWNLOAD_URL
                         }
                     } else {
                         // Windows platform
                         env.DETECTED_PLATFORM = "Windows"
                         env.DOWNLOAD_URL = "https://storage.googleapis.com/masst-assets/Defender-Binary-Integrator/1.0.0/Windows/MASSTCLI-v1.1.0-windows-amd64.zip"
-                        env.INPUT_FILE = "app-release.aab"
-                        env.CONFIG_FILE = "bluebeetle_config.bm"
                     }
 
                     echo """
@@ -126,7 +135,11 @@ Config File: ${env.CONFIG_FILE}
                             sh '''#!/bin/bash
                                 set -e
 
-                                [ -d "${WORKSPACE}/${MASST_DIR}" ] && exit 0
+                                # Always delete old extracted directory to avoid platform mismatch
+                                if [ -d "${WORKSPACE}/${MASST_DIR}" ]; then
+                                    echo "Removing old MASSTCLI directory..."
+                                    rm -rf "${WORKSPACE}/${MASST_DIR}"
+                                fi
 
                                 TEMP=$(mktemp -d)
                                 unzip -q "${WORKSPACE}/${MASST_ZIP}.zip" -d "${TEMP}"
@@ -143,7 +156,11 @@ Config File: ${env.CONFIG_FILE}
                             '''
                         } else {
                             bat '''
-                                if exist "%MASST_DIR%" exit /b 0
+                                REM Always delete old extracted directory to avoid platform mismatch
+                                if exist "%WORKSPACE%\\%MASST_DIR%" (
+                                    echo Removing old MASSTCLI directory...
+                                    rmdir /s /q "%WORKSPACE%\\%MASST_DIR%"
+                                )
 
                                 set "TEMP=C:\\temp\\masst_%RANDOM%"
                                 powershell -Command "New-Item -ItemType Directory -Path '!TEMP!' -Force | Out-Null; Expand-Archive -LiteralPath '%WORKSPACE%\\%MASST_ZIP%.zip' -DestinationPath '!TEMP!' -Force"
@@ -178,6 +195,8 @@ Config File: ${env.CONFIG_FILE}
                             # Find MASSTCLI executable
                             MASST_EXE=\$(find "${MASST_DIR}" -type f -name "MASSTCLI*" -print -quit)
                             [ -x "\${MASST_EXE}" ] || { echo "ERROR: MASSTCLI executable not found or not executable"; exit 1; }
+
+                            echo "Using executable: \${MASST_EXE}"
 
                             INPUT_PATH="${WORKSPACE}/${env.INPUT_FILE}"
                             CONFIG_PATH="${WORKSPACE}/${env.CONFIG_FILE}"
@@ -255,6 +274,8 @@ Config File: ${env.CONFIG_FILE}
                                 set "MASST_EXE=%%%%f"
                                 set "INPUT_PATH=%WORKSPACE%\\%INPUT_FILE%"
                                 set "CONFIG_PATH=%WORKSPACE%\\%CONFIG_FILE%"
+
+                                echo Using executable: !MASST_EXE!
 
                                 for %%A in ("!INPUT_PATH!") do set "EXT=%%~xA"
                                 if /I "!EXT!"==".xcarchive" (
