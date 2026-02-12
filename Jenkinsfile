@@ -1,12 +1,12 @@
 pipeline {
     agent any
- parameters {
-            booleanParam(name: 'IS_DEBUG', defaultValue: false, description: 'Debug or Release build')
-            choice(name: 'SHIELD_LEVEL', choices: ['1', '2'], description: 'Select Shield Protection Level')
-        }
-        environment {
+    parameters {
+        booleanParam(name: 'IS_DEBUG', defaultValue: false, description: 'Debug or Release build')
+    }
+    environment {
         // USER CONFIGURATION
         INPUT_FILE = "app-release.aab"; CONFIG_FILE = "bluebeetle_config.bm"
+        SHIELD_LEVEL = "1"  // Set to "1" or "2"
         MACOS_DOWNLOAD_URL = "https://storage.googleapis.com/masst-assets/Defender-Binary-Integrator/1.0.0/MacOS/MASSTCLI-v1.1.0-darwin-arm64.zip"
         LINUX_DOWNLOAD_URL = "https://storage.googleapis.com/masst-assets/Defender-Binary-Integrator/1.0.0/Linux/MASSTCLI-v1.1.0-linux-amd64.zip"
         ANDROID_HOME = "/home/snehal_mane/Android/Sdk"
@@ -18,7 +18,7 @@ pipeline {
     stages {
         stage('Setup') {
             steps {
-                checkout scm //remove this line if not using git or jenkinsfile is not in repo
+                checkout scm //remove this line if not using Jenkinsfile from repo
                 script {
                     if (isUnix()) {
                         sh '''#!/bin/bash
@@ -49,43 +49,34 @@ pipeline {
                         sh """#!/bin/bash
                             set -e
 
-                            # Set Android environment if Linux
                             [ "${env.DETECTED_PLATFORM}" = "Linux" ] && export PATH=\$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools
 
-                            # Validate input files
                             [ -e "${INPUT_FILE}" ] || { echo "ERROR: ${INPUT_FILE} not found"; exit 1; }
                             [ -f "${CONFIG_FILE}" ] || { echo "ERROR: ${CONFIG_FILE} not found"; exit 1; }
 
-                            # Find MASSTCLI executable
                             MASST_EXE=\$(find "${MASST_DIR}" -type f -name "MASSTCLI*" -print -quit)
                             [ -x "\$MASST_EXE" ] || { echo "ERROR: MASSTCLI executable not found"; exit 1; }
 
-                            USER_INPUT="${params.SHIELD_LEVEL}"
-                            echo "Using Shield Level: \$USER_INPUT"
+                            echo "Using Shield Level: ${SHIELD_LEVEL}"
 
-                            # Detect file extension
                             EXT=\$(echo "${INPUT_FILE}" | awk -F. '{print tolower(\$NF)}')
 
                             case "\$EXT" in
                                 xcarchive|ipa)
-                                    # iOS builds
-                                    printf "%s\\n" "\$USER_INPUT" | "\$MASST_EXE" \\
+                                    printf "%s\\n" "${SHIELD_LEVEL}" | "\$MASST_EXE" \\
                                         -input="${INPUT_FILE}" \\
                                         -config="${CONFIG_FILE}" \\
                                         -identity="${IDENTITY}"
                                     ;;
                                 aab|apk)
-                                    # Android builds
                                     if [ "${params.IS_DEBUG}" = "true" ]; then
-                                        # Debug build - no signing
-                                        printf "%s\\n" "\$USER_INPUT" | "\$MASST_EXE" \\
+                                        printf "%s\\n" "${SHIELD_LEVEL}" | "\$MASST_EXE" \\
                                             -input="${INPUT_FILE}" \\
                                             -config="${CONFIG_FILE}"
                                     else
-                                        # Release build - with keystore signing
                                         [ -f "${KEYSTORE_FILE}" ] || { echo "ERROR: Keystore not found"; exit 1; }
 
-                                        printf "%s\\n" "\$USER_INPUT" | "\$MASST_EXE" \\
+                                        printf "%s\\n" "${SHIELD_LEVEL}" | "\$MASST_EXE" \\
                                             -input="${INPUT_FILE}" \\
                                             -config="${CONFIG_FILE}" \\
                                             -keystore="${KEYSTORE_FILE}" \\
