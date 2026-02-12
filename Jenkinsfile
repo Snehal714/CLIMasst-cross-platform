@@ -1,8 +1,5 @@
 pipeline {
     agent any
-    parameters {
-        booleanParam(name: 'IS_DEBUG', defaultValue: false, description: 'Debug or Release build')
-    }
     environment {
         // USER CONFIGURATION
         INPUT_FILE = "app-release.aab"; CONFIG_FILE = "bluebeetle_config.bm"
@@ -18,7 +15,7 @@ pipeline {
     stages {
         stage('Setup') {
             steps {
-                checkout scm //remove this line if not using Jenkinsfile from repo
+                checkout scm //dont add this line if you are not using git or any scm, otherwise it will throw error
                 script {
                     if (isUnix()) {
                         sh '''#!/bin/bash
@@ -69,22 +66,16 @@ pipeline {
                                         -identity="${IDENTITY}"
                                     ;;
                                 aab|apk)
-                                    if [ "${params.IS_DEBUG}" = "true" ]; then
-                                        printf "%s\\n" "${SHIELD_LEVEL}" | "\$MASST_EXE" \\
-                                            -input="${INPUT_FILE}" \\
-                                            -config="${CONFIG_FILE}"
-                                    else
-                                        [ -f "${KEYSTORE_FILE}" ] || { echo "ERROR: Keystore not found"; exit 1; }
+                                    [ -f "${KEYSTORE_FILE}" ] || { echo "ERROR: Keystore not found"; exit 1; }
 
-                                        printf "%s\\n" "${SHIELD_LEVEL}" | "\$MASST_EXE" \\
-                                            -input="${INPUT_FILE}" \\
-                                            -config="${CONFIG_FILE}" \\
-                                            -keystore="${KEYSTORE_FILE}" \\
-                                            -storePassword=${KEYSTORE_PASSWORD} \\
-                                            -alias=${KEY_ALIAS} \\
-                                            -keyPassword=${KEY_PASSWORD} \\
-                                            -v=true -apk
-                                    fi
+                                    printf "%s\\n" "${SHIELD_LEVEL}" | "\$MASST_EXE" \\
+                                        -input="${INPUT_FILE}" \\
+                                        -config="${CONFIG_FILE}" \\
+                                        -keystore="${KEYSTORE_FILE}" \\
+                                        -storePassword=${KEYSTORE_PASSWORD} \\
+                                        -alias=${KEY_ALIAS} \\
+                                        -keyPassword=${KEY_PASSWORD} \\
+                                        -apk
                                     ;;
                                 *)
                                     echo "ERROR: Unsupported file type: ${INPUT_FILE}"
@@ -104,7 +95,7 @@ pipeline {
                     if (isUnix()) {
                         sh """#!/bin/bash
                             mkdir -p "${ARTIFACTS_DIR}"
-                            echo "Build: ${env.DETECTED_PLATFORM} | ${params.IS_DEBUG ? 'DEBUG' : 'RELEASE'} | \$(date)" > "${ARTIFACTS_DIR}/report.txt"
+                            echo "Build: ${env.DETECTED_PLATFORM} | RELEASE | \$(date)" > "${ARTIFACTS_DIR}/report.txt"
                             rm -rf "${MASST_DIR}" "${MASST_ZIP}.zip"
                         """
                     }
@@ -114,7 +105,7 @@ pipeline {
         }
     }
     post {
-        success { echo "${env.DETECTED_PLATFORM} ${params.IS_DEBUG ? 'DEBUG' : 'RELEASE'} - SUCCESS" }
+        success { echo "${env.DETECTED_PLATFORM} RELEASE - SUCCESS" }
         failure { echo 'Failed' }
     }
 }
